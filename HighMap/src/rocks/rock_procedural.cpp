@@ -257,10 +257,6 @@ RockField place_rocks_procedural(size_t       rock_count,
                                                    options.bbox);
   }
 
-  // --- Prune overlapping rocks
-
-  rock_field.prune_collisions();
-
   return rock_field;
 }
 

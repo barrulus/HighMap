@@ -123,7 +123,6 @@ public:
                            float            sorting_strength = 1.0f,
                            const glm::vec4 &bbox = {0.f, 1.f, 0.f, 1.f});
 
-
   /**
    * @brief Simulates physical movement (sliding, rolling, bouncing, and
    * inter-rock collision avoidance) for this RockField across terrain on GPU.
