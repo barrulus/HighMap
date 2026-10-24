@@ -1,0 +1,2 @@
+add_executable(ex_rock_procedural ex_rock_procedural.cpp)
+target_link_libraries(ex_rock_procedural highmap)

@@ -11,5 +11,6 @@
 #include "highmap/rocks/rock.hpp"
 #include "highmap/rocks/rock_distribution.hpp"
 #include "highmap/rocks/rock_field.hpp"
+#include "highmap/rocks/rock_procedural.hpp"
 #include "highmap/rocks/rock_seeding.hpp"
 #include "highmap/rocks/rock_simulation.hpp"

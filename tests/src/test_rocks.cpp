@@ -427,3 +427,286 @@ TEST(RockSimulationTest, ProgressiveSpawn)
     EXPECT_LE(rock.position.y, 1.0f);
   }
 }
+
+// --- Procedural Placement
+
+TEST(RockProceduralTest, EmptyInput)
+{
+  RockField field = place_rocks_procedural(100, Array());
+  EXPECT_EQ(field.size(), 0u);
+
+  field = place_rocks_procedural(0, Array(glm::ivec2(16, 16), 1.f));
+  EXPECT_EQ(field.size(), 0u);
+}
+
+TEST(RockProceduralTest, DeterministicAndBounded)
+{
+  glm::ivec2 shape = {64, 64};
+  Array      z(shape);
+
+  for (int j = 0; j < shape.y; ++j)
+  {
+    for (int i = 0; i < shape.x; ++i)
+    {
+      z(i, j) = float(i) / float(shape.x - 1);
+    }
+  }
+
+  RockSeedingOptions options;
+  options.seed = 7;
+  options.distribution = RockDistribution(0u, 0.005f, 0.03f);
+
+  RockField a = place_rocks_procedural(300,
+                                       z,
+                                       0.f,
+                                       1.f,
+                                       1.f,
+                                       {},
+                                       {},
+                                       0.f,
+                                       1.f,
+                                       1.f,
+                                       options);
+  RockField b = place_rocks_procedural(300,
+                                       z,
+                                       0.f,
+                                       1.f,
+                                       1.f,
+                                       {},
+                                       {},
+                                       0.f,
+                                       1.f,
+                                       1.f,
+                                       options);
+
+  EXPECT_GT(a.size(), 0u);
+  EXPECT_LE(a.size(), 300u);
+  EXPECT_EQ(a.size(), b.size());
+}
+
+TEST(RockProceduralTest, SizeBroadensAtLowElevation)
+{
+  glm::ivec2 shape = {64, 64};
+  Array      z(shape);
+
+  for (int j = 0; j < shape.y; ++j)
+  {
+    for (int i = 0; i < shape.x; ++i)
+    {
+      z(i, j) = float(i) / float(shape.x - 1);
+    }
+  }
+
+  RockSeedingOptions options;
+  options.seed = 3;
+  options.distribution = RockDistribution(0u, 0.002f, 0.02f, 1.f);
+
+  RockField field = place_rocks_procedural(400,
+                                           z,
+                                           0.f,
+                                           1.f,
+                                           1.f,
+                                           {},
+                                           {},
+                                           0.f,
+                                           1.f,
+                                           1.f,
+                                           options);
+
+  // elevation increases with x: low elevation is x < 0.5
+  float max_low = 0.f;
+  float max_high = 0.f;
+  float min_low = 1e9f;
+  int   n_low = 0;
+  int   n_high = 0;
+
+  for (const auto &rock : field)
+  {
+    if (rock.position.x < 0.5f)
+    {
+      max_low = std::max(max_low, rock.radius);
+      min_low = std::min(min_low, rock.radius);
+      n_low++;
+    }
+    else
+    {
+      max_high = std::max(max_high, rock.radius);
+      n_high++;
+    }
+  }
+
+  ASSERT_GT(n_low, 0);
+  ASSERT_GT(n_high, 0);
+
+  // larger rocks at low elevation, but small rocks are still present
+  EXPECT_GT(max_low, max_high);
+  EXPECT_LT(min_low, 0.004f);
+}
+
+// --- Rock Density
+
+TEST(RockDensityTest, EmptyAndInvalidInputs)
+{
+  Array empty_array;
+  Array valid_hmap(glm::ivec2(32, 32), 0.5f);
+  Array mismatched_array(glm::ivec2(16, 16), 1.0f);
+
+  Array d1 = build_rock_density(empty_array);
+  EXPECT_TRUE(d1.vector.empty());
+
+  Array d2 = build_rock_density(valid_hmap,
+                                0.05f,
+                                0.01f,
+                                1.0f,
+                                1.0f,
+                                1.0f,
+                                0.1f,
+                                1000.0f,
+                                mismatched_array,
+                                1.0f);
+  EXPECT_TRUE(d2.vector.empty());
+
+  Array d3 = build_rock_density(valid_hmap,
+                                0.05f,
+                                0.01f,
+                                1.0f,
+                                1.0f,
+                                1.0f,
+                                0.1f,
+                                1000.0f,
+                                {},
+                                1.0f,
+                                mismatched_array);
+  EXPECT_TRUE(d3.vector.empty());
+}
+
+TEST(RockDensityTest, BasicComputationAndExclusion)
+{
+  glm::ivec2 shape = {32, 32};
+  Array      hmap(shape, 0.0f);
+  for (int j = 0; j < shape.y; ++j)
+  {
+    for (int i = 0; i < shape.x; ++i)
+    {
+      hmap(i, j) = static_cast<float>(j) / static_cast<float>(shape.y);
+    }
+  }
+
+  Array density = build_rock_density(hmap);
+  ASSERT_EQ(density.shape.x, shape.x);
+  ASSERT_EQ(density.shape.y, shape.y);
+
+  for (float v : density.vector)
+  {
+    EXPECT_GE(v, 0.0f);
+    EXPECT_LE(v, 1.0f);
+  }
+
+  // Exclusion mask test
+  Array mask(shape, 0.0f);
+  for (int j = 0; j < shape.y; ++j)
+  {
+    for (int i = 0; i < shape.x / 2; ++i)
+    {
+      mask(i, j) = 1.0f;
+    }
+  }
+
+  Array density_masked = build_rock_density(hmap,
+                                            0.05f,
+                                            0.01f,
+                                            1.0f,
+                                            1.0f,
+                                            1.0f,
+                                            0.1f,
+                                            1000.0f,
+                                            {},
+                                            1.0f,
+                                            mask,
+                                            0.5f);
+
+  for (int j = 0; j < shape.y; ++j)
+  {
+    for (int i = 0; i < shape.x / 2; ++i)
+    {
+      EXPECT_FLOAT_EQ(density_masked(i, j), 0.0f);
+    }
+  }
+}
+
+TEST(RockProceduralTest, AutomaticDensityAndNoOverlaps)
+{
+  glm::ivec2 shape = {64, 64};
+  Array      z(shape, 0.5f);
+
+  RockSeedingOptions options;
+  options.seed = 42;
+  options.distribution = RockDistribution(0u, 0.01f, 0.04f, 1.5f);
+
+  // When density is not provided, place_rocks_procedural uses a flat density
+  // equal to 1
+  RockField field = place_rocks_procedural(200,
+                                           z,
+                                           0.f,
+                                           1.f,
+                                           1.f,
+                                           {},
+                                           {},
+                                           0.f,
+                                           1.f,
+                                           1.f,
+                                           options);
+
+  EXPECT_GT(field.size(), 0u);
+
+  // Check that collision pruning ensured rocks do not significantly overlap
+  for (size_t i = 0; i < field.size(); ++i)
+  {
+    for (size_t j = i + 1; j < field.size(); ++j)
+    {
+      float dist = glm::distance(glm::vec2(field[i].position),
+                                 glm::vec2(field[j].position));
+      EXPECT_GE(dist, field[i].radius + field[j].radius - 1e-4f);
+    }
+  }
+}
+
+TEST(RockDensityTest, TiledBoundingBox)
+{
+  glm::ivec2 shape = {32, 32};
+  Array      hmap(shape, 0.5f);
+
+  // Compute with two distinct tile bounding boxes
+  Array d_tile1 = build_rock_density(hmap,
+                                     0.05f,
+                                     0.01f,
+                                     1.0f,
+                                     1.0f,
+                                     1.0f,
+                                     0.1f,
+                                     1000.0f,
+                                     {},
+                                     1.0f,
+                                     {},
+                                     0.f,
+                                     {0.f, 0.5f, 0.f, 0.5f});
+
+  Array d_tile2 = build_rock_density(hmap,
+                                     0.05f,
+                                     0.01f,
+                                     1.0f,
+                                     1.0f,
+                                     1.0f,
+                                     0.1f,
+                                     1000.0f,
+                                     {},
+                                     1.0f,
+                                     {},
+                                     0.f,
+                                     {0.5f, 1.f, 0.5f, 1.f});
+
+  EXPECT_EQ(d_tile1.shape.x, 32);
+  EXPECT_EQ(d_tile2.shape.x, 32);
+  EXPECT_FALSE(d_tile1.vector.empty());
+  EXPECT_FALSE(d_tile2.vector.empty());
+}
