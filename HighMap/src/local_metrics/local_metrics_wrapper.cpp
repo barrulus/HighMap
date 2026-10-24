@@ -65,6 +65,9 @@ Array local_metrics(const Array &array,
   case LocalMetrics::LM_RUGOSITY_CONVEX:
     return gpu::rugosity(array, ir, /* convex */ true);
     //
+  case LocalMetrics::LM_TOPOGRAPHIC_RESIDUAL:
+    return gpu::topographic_residual(array, ir);
+    //
   default: throw std::runtime_error("unknown LocalMetrics in local_metrics");
   }
   // clang-format on

@@ -627,6 +627,7 @@ enum LocalMetrics : int
 	LM_RUGGEDNESS,                 ///< Measure of terrain roughness.
 	LM_RUGOSITY_CONCAVE,           ///< Roughness of concave features.
 	LM_RUGOSITY_CONVEX,            ///< Roughness of convex features.
+	LM_TOPOGRAPHIC_RESIDUAL,       ///< Deviation from smoothed surface.
 };
 // clang-format on
 
