@@ -21,6 +21,7 @@
 #include "highmap/scatter/scatter_field.hpp"
 #include "highmap/scatter/scatter_seeding.hpp"
 #include "highmap/selector.hpp"
+#include "highmap/virtual_array/virtual_array.hpp"
 
 namespace hmap
 {
@@ -261,3 +262,192 @@ RockField place_rocks_procedural(size_t       rock_count,
 }
 
 } // namespace hmap
+
+namespace hmap::va
+{
+
+RockField place_rocks_procedural(size_t              rock_count,
+                                 const VirtualArray &elevation,
+                                 float               min_elev,
+                                 float               max_elev,
+                                 float               max_slope,
+                                 const VirtualArray &density,
+                                 const VirtualArray &exclusion,
+                                 float               size_slope_weight,
+                                 float               size_elevation_gain,
+                                 float               size_elevation_exponent,
+                                 const RockSeedingOptions &options,
+                                 const ComputeMode        &cm)
+{
+  // --- Validate inputs
+
+  if (rock_count == 0 || elevation.empty())
+  {
+    return RockField();
+  }
+
+  bool has_density = (density.storage != nullptr) &&
+                     (density.shape.x > 0 && density.shape.y > 0);
+
+  if (has_density)
+  {
+    if (density.shape != elevation.shape ||
+        density.tile_shape != elevation.tile_shape)
+    {
+      hmap::log::warn(
+          "Density VirtualArray shape mismatch with elevation VirtualArray");
+      return RockField();
+    }
+  }
+
+  bool has_exclusion = (exclusion.storage != nullptr) &&
+                       (exclusion.shape.x > 0 && exclusion.shape.y > 0);
+
+  if (has_exclusion)
+  {
+    if (exclusion.shape != elevation.shape ||
+        exclusion.tile_shape != elevation.tile_shape)
+    {
+      hmap::log::warn(
+          "Exclusion VirtualArray shape mismatch with elevation VirtualArray");
+      return RockField();
+    }
+  }
+
+  glm::ivec2 num_tiles = elevation.get_max_tiles();
+  int        total_tiles = num_tiles.x * num_tiles.y;
+
+  if (total_tiles == 0) return RockField();
+
+  // --- Compute Density Sums per Tile and Global Inner Sum
+
+  const VirtualArray *p_density_va = has_density ? &density : nullptr;
+  const VirtualArray *p_exclusion_va = has_exclusion ? &exclusion : nullptr;
+
+  std::vector<float> tile_full_sums;
+  float              total_inner_sum = 0.f;
+
+  if (has_density)
+  {
+    sum_per_tile(density,
+                 tile_full_sums,
+                 &total_inner_sum,
+                 p_exclusion_va,
+                 options.exclusion_threshold,
+                 cm);
+  }
+  else
+  {
+    // Uniform density: count valid cells per tile
+    tile_full_sums.assign(total_tiles, 0.f);
+
+    hmap::for_each_tile(
+        {&elevation, p_exclusion_va},
+        {},
+        [&](const std::vector<const Array *> &p_arrays_in,
+            std::vector<Array *> &,
+            const TileRegion &region)
+        {
+          const auto [p_elev_tile, p_excl_tile] = unpack<2>(p_arrays_in);
+
+          int tile_index = region.key.ty * num_tiles.x + region.key.tx;
+
+          float tile_full_sum = 0.f;
+          float tile_inner_sum = 0.f;
+
+          const glm::ivec4 &halo = region.halo;
+          int               shape_x = region.shape.x;
+          int               shape_y = region.shape.y;
+
+          for (int j = 0; j < shape_y; ++j)
+          {
+            bool is_inner_y = (j >= halo.z && j < shape_y - halo.w);
+
+            for (int i = 0; i < shape_x; ++i)
+            {
+              float val = 1.0f;
+
+              if (p_excl_tile &&
+                  (*p_excl_tile)(i, j) > options.exclusion_threshold)
+              {
+                val = 0.0f;
+              }
+
+              if (val > 0.0f)
+              {
+                tile_full_sum += val;
+
+                if (is_inner_y && i >= halo.x && i < shape_x - halo.y)
+                {
+                  tile_inner_sum += val;
+                }
+              }
+            }
+          }
+
+          tile_full_sums[tile_index] = tile_full_sum;
+          total_inner_sum += tile_inner_sum;
+        },
+        cm);
+  }
+
+  if (total_inner_sum <= 1e-7f) return RockField();
+
+  // --- Generate Sub-RockFields per Tile
+
+  std::vector<ScatterField> tile_fields(total_tiles);
+  std::vector<glm::vec4>    tile_bboxs(total_tiles);
+
+  hmap::for_each_tile(
+      {&elevation, p_density_va, p_exclusion_va},
+      {},
+      [&](const std::vector<const Array *> &p_arrays_in,
+          std::vector<Array *> &,
+          const TileRegion &region)
+      {
+        const auto [p_elev_tile, p_density_tile, p_excl_tile] = unpack<3>(
+            p_arrays_in);
+
+        int tile_index = region.key.ty * num_tiles.x + region.key.tx;
+
+        tile_bboxs[tile_index] = region.bbox;
+
+        float  tile_sum = tile_full_sums[tile_index];
+        size_t tile_rock_count = static_cast<size_t>(std::round(
+            static_cast<float>(rock_count) * (tile_sum / total_inner_sum)));
+
+        if (tile_rock_count == 0)
+        {
+          return;
+        }
+
+        RockSeedingOptions tile_options = options;
+        tile_options.bbox = region.bbox;
+        tile_options.seed = options.seed +
+                            static_cast<uint32_t>(tile_index) * 1999u + 17u;
+
+        RockField tile_rock_field = hmap::place_rocks_procedural(
+            tile_rock_count,
+            *p_elev_tile,
+            min_elev,
+            max_elev,
+            max_slope,
+            p_density_tile ? *p_density_tile : Array(),
+            p_excl_tile ? *p_excl_tile : Array(),
+            size_slope_weight,
+            size_elevation_gain,
+            size_elevation_exponent,
+            tile_options);
+
+        tile_fields[tile_index] = std::move(tile_rock_field);
+      },
+      cm);
+
+  // --- Merge RockFields with Bounding Box Overlap Resolution
+
+  ScatterField merged = merge_scatter_fields(tile_fields, tile_bboxs, true);
+
+  return RockField(std::move(merged));
+}
+
+} // namespace hmap::va

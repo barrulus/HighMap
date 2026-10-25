@@ -13,6 +13,7 @@
 #include "highmap/array.hpp"
 #include "highmap/rocks/rock_field.hpp"
 #include "highmap/rocks/rock_seeding.hpp"
+#include "highmap/virtual_array/virtual_array.hpp"
 
 namespace hmap
 {
@@ -108,3 +109,46 @@ RockField place_rocks_procedural(size_t       rock_count,
                                  const RockSeedingOptions &options = {});
 
 } // namespace hmap
+
+namespace hmap::va
+{
+
+/**
+ * @brief Places rocks procedurally across a tiled VirtualArray domain using
+ * local density/elevation and bounding-box-aware tile merging.
+ *
+ * @param  rock_count              Target number of rocks.
+ * @param  elevation               Terrain elevation VirtualArray.
+ * @param  min_elev                Elevation mapped to 0 in normalized
+ *                                 elevation.
+ * @param  max_elev                Elevation mapped to 1 in normalized
+ *                                 elevation.
+ * @param  max_slope               Talus threshold above which rock size is
+ *                                 attenuated.
+ * @param  density                 Optional user density VirtualArray (if empty,
+ *                                 defaults to uniform flat density of 1).
+ * @param  exclusion               Optional exclusion VirtualArray (same shape as
+ *                                 elevation).
+ * @param  size_slope_weight       In [0, 1], reduces maximum rock size on steep
+ *                                 slopes.
+ * @param  size_elevation_gain     Low-elevation influence on maximum rock size.
+ * @param  size_elevation_exponent Power-law exponent of size / (1 - elevation)
+ *                                 relation.
+ * @param  options                 Seeding options.
+ * @param  cm                      Virtual array compute mode.
+ * @return                         RockField Placed rocks.
+ */
+RockField place_rocks_procedural(size_t                    rock_count,
+                                 const VirtualArray       &elevation,
+                                 float                     min_elev = 0.f,
+                                 float                     max_elev = 0.9f,
+                                 float                     max_slope = 1.f,
+                                 const VirtualArray       &density = {},
+                                 const VirtualArray       &exclusion = {},
+                                 float                     size_slope_weight = 0.f,
+                                 float                     size_elevation_gain = 1.f,
+                                 float                     size_elevation_exponent = 1.f,
+                                 const RockSeedingOptions &options = {},
+                                 const ComputeMode        &cm = {});
+
+} // namespace hmap::va

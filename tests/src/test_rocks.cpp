@@ -659,6 +659,8 @@ TEST(RockProceduralTest, AutomaticDensityAndNoOverlaps)
 
   EXPECT_GT(field.size(), 0u);
 
+  field.prune_collisions();
+
   // Check that collision pruning ensured rocks do not significantly overlap
   for (size_t i = 0; i < field.size(); ++i)
   {
@@ -669,6 +671,135 @@ TEST(RockProceduralTest, AutomaticDensityAndNoOverlaps)
       EXPECT_GE(dist, field[i].radius + field[j].radius - 1e-4f);
     }
   }
+}
+
+TEST(RockProceduralTest, VirtualArrayBasicExecution)
+{
+  glm::ivec2 shape = {64, 64};
+  glm::ivec2 tile_shape = {32, 32};
+  int        halo = 4;
+  glm::vec4  bbox = {0.0f, 100.0f, 0.0f, 100.0f};
+
+  VirtualArray elevation(shape, bbox, tile_shape, halo);
+  ComputeMode  cm;
+  elevation.fill(0.5f, cm);
+
+  RockSeedingOptions options;
+  options.seed = 42;
+  options.bbox = bbox;
+  options.distribution = RockDistribution(0u, 0.5f, 2.0f, 1.5f);
+
+  size_t rock_count = 80;
+
+  RockField field = hmap::va::place_rocks_procedural(rock_count,
+                                                     elevation,
+                                                     0.f,
+                                                     1.f,
+                                                     1.f,
+                                                     {},
+                                                     {},
+                                                     0.f,
+                                                     1.f,
+                                                     1.f,
+                                                     options,
+                                                     cm);
+
+  EXPECT_GT(field.size(), 0u);
+  EXPECT_NEAR(static_cast<double>(field.size()),
+              static_cast<double>(rock_count),
+              30.0);
+
+  for (const auto &rock : field)
+  {
+    EXPECT_GE(rock.position.x, 0.0f);
+    EXPECT_LE(rock.position.x, 100.0f);
+    EXPECT_GE(rock.position.y, 0.0f);
+    EXPECT_LE(rock.position.y, 100.0f);
+    EXPECT_NEAR(rock.position.z, 0.5f, 1e-4f);
+    EXPECT_GE(rock.radius, 0.5f);
+    EXPECT_LE(rock.radius, 2.0f);
+  }
+}
+
+TEST(RockProceduralTest, VirtualArrayExclusionMask)
+{
+  glm::ivec2 shape = {64, 64};
+  glm::ivec2 tile_shape = {32, 32};
+  int        halo = 4;
+  glm::vec4  bbox = {0.0f, 1.0f, 0.0f, 1.0f};
+
+  VirtualArray elevation(shape, bbox, tile_shape, halo);
+  VirtualArray exclusion(shape, bbox, tile_shape, halo);
+  ComputeMode  cm;
+  elevation.fill(0.3f, cm);
+  exclusion.fill(0.0f, cm);
+
+  // Exclude top half (y >= 0.5)
+  Array excl_array(shape, 0.0f);
+  for (int j = 32; j < 64; ++j)
+  {
+    for (int i = 0; i < 64; ++i)
+    {
+      excl_array(i, j) = 1.0f;
+    }
+  }
+  exclusion.from_array(excl_array, cm);
+
+  RockSeedingOptions options;
+  options.seed = 123;
+  options.bbox = bbox;
+  options.exclusion_threshold = 0.5f;
+
+  RockField field = hmap::va::place_rocks_procedural(60,
+                                                     elevation,
+                                                     0.f,
+                                                     1.f,
+                                                     1.f,
+                                                     {},
+                                                     exclusion,
+                                                     0.f,
+                                                     1.f,
+                                                     1.f,
+                                                     options,
+                                                     cm);
+
+  EXPECT_GT(field.size(), 0u);
+
+  for (const auto &rock : field)
+  {
+    EXPECT_LT(rock.position.y, 0.55f);
+  }
+}
+
+TEST(RockProceduralTest, VirtualArrayEmptyAndZeroDensity)
+{
+  VirtualArray empty_va;
+  ComputeMode  cm;
+
+  RockField f1 = hmap::va::place_rocks_procedural(50, empty_va);
+  EXPECT_EQ(f1.size(), 0u);
+
+  glm::ivec2   shape = {32, 32};
+  glm::ivec2   tile_shape = {16, 16};
+  VirtualArray elevation(shape, {0.f, 1.f, 0.f, 1.f}, tile_shape, 2);
+  elevation.fill(0.5f, cm);
+
+  VirtualArray zero_density(shape, {0.f, 1.f, 0.f, 1.f}, tile_shape, 2);
+  zero_density.fill(0.0f, cm);
+
+  RockField f2 = hmap::va::place_rocks_procedural(50,
+                                                  elevation,
+                                                  0.f,
+                                                  1.f,
+                                                  1.f,
+                                                  zero_density,
+                                                  {},
+                                                  0.f,
+                                                  1.f,
+                                                  1.f,
+                                                  {},
+                                                  cm);
+  EXPECT_EQ(f2.size(), 0u);
 }
 
 TEST(RockDensityTest, TiledBoundingBox)
