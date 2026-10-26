@@ -108,18 +108,6 @@ struct TerrainTextureParams
 };
 
 /**
- * @brief Adjust color by shading parameter t clamped to [0, 1].
- *
- * Darker and richer for t approaching 0, lighter and duller for t approaching
- * 1.
- *
- * @param  color Input RGB color.
- * @param  t     Shading parameter (clamped to [0, 1]).
- * @return       Adjusted RGB color.
- */
-glm::vec3 shade_color(const glm::vec3 &color, float t);
-
-/**
  * @enum Cmap
  * @brief Enumeration for different colormap types.
  *
@@ -502,6 +490,49 @@ Texture mix_normal_map(const Texture          &nmap_base,
                        const Texture          &nmap_detail,
                        float                   detail_scaling,
                        NormalMapBlendingMethod blending_method);
+
+/**
+ * @brief Adjust color by shading parameter t clamped to [0, 1].
+ *
+ * Darker and richer for t approaching 0, lighter and duller for t approaching
+ * 1.
+ *
+ * @param  color Input RGB color.
+ * @param  t     Shading parameter (clamped to [0, 1]).
+ * @return       Adjusted RGB color.
+ */
+glm::vec3 shade_color(const glm::vec3 &color, float t);
+
+/**
+ * @brief Apply shade_color to each pixel of a Texture using values from an
+ * Array.
+ *
+ * For each pixel (i, j), adjusts RGB channels using factor(i, j) clamped to [0,
+ * 1]. Alpha channel (if present) is preserved.
+ *
+ * @param  tex    Texture to be shaded in-place (must have at least 3 channels).
+ * @param  factor Shading factor Array with same 2D shape as tex.
+ */
+void shade_color(Texture &tex, const Array &factor);
+
+/**
+ * @brief Apply shade_color to a Texture based on topographic residuals of an
+ * elevation array.
+ *
+ * Computes normalized topographic residual on the input elevation array z with
+ * smoothing radius ir, scales the normalized residual [-1, 1] by strength into
+ * shading factors in [0, 1], and applies shade_color to tex.
+ *
+ * @param  tex      Texture to be shaded in-place (must have at least 3
+ *                  channels).
+ * @param  z        Elevation array with same 2D shape as tex.
+ * @param  ir       Radius for topographic residual smoothing filter.
+ * @param  strength Strength of residual shading (default is 1.f).
+ */
+void shade_topographic_residual(Texture     &tex,
+                                const Array &z,
+                                int          ir,
+                                float        strength = 1.0f);
 
 /**
  * @brief Generate a procedural terrain texture from elevation and surface

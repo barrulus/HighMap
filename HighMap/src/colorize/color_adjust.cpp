@@ -1,6 +1,7 @@
 /* Copyright (c) 2025 Otto Link. Distributed under the terms of the GNU General
  * Public License. The full license is in the file LICENSE, distributed with
  * this software. */
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -9,6 +10,8 @@
 #include "highmap/array.hpp"
 #include "highmap/colorize.hpp"
 #include "highmap/internal/validation.hpp"
+#include "highmap/local_metrics.hpp"
+#include "highmap/texture.hpp"
 
 namespace hmap
 {
@@ -130,6 +133,53 @@ void color_adjust(Array      &r,
       g(i, j) = c.g;
       b(i, j) = c.b;
     }
+}
+
+void shade_color(Texture &tex, const Array &factor)
+{
+  if (!validate_non_empty(tex, 3)) return;
+  if (!validate_non_empty(factor)) return;
+  if (!validate_same_shape(tex, factor)) return;
+
+  const glm::ivec2 &shape = tex.shape;
+
+#pragma omp parallel for collapse(2)
+  for (int j = 0; j < shape.y; ++j)
+  {
+    for (int i = 0; i < shape.x; ++i)
+    {
+      const glm::vec3 c{tex(i, j, 0), tex(i, j, 1), tex(i, j, 2)};
+      const glm::vec3 shaded = shade_color(c, factor(i, j));
+
+      tex(i, j, 0) = shaded.r;
+      tex(i, j, 1) = shaded.g;
+      tex(i, j, 2) = shaded.b;
+    }
+  }
+}
+
+void shade_topographic_residual(Texture     &tex,
+                                const Array &z,
+                                int          ir,
+                                float        strength)
+{
+  if (!validate_non_empty(tex, 3)) return;
+  if (!validate_non_empty(z)) return;
+  if (!validate_same_shape(tex, z)) return;
+
+  const Array residual = topographic_residual(z, ir, true);
+  Array       factor(z.shape, 0.5f);
+
+  const size_t n = residual.vector.size();
+
+#pragma omp parallel for
+  for (size_t idx = 0; idx < n; ++idx)
+  {
+    const float val = 0.5f + 0.5f * strength * residual.vector[idx];
+    factor.vector[idx] = std::clamp(val, 0.0f, 1.0f);
+  }
+
+  shade_color(tex, factor);
 }
 
 } // namespace hmap
