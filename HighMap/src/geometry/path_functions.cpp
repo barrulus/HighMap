@@ -21,6 +21,7 @@
 #include "highmap/interpolate/interpolate1d.hpp"
 #include "highmap/interpolate/interpolate_curve.hpp"
 #include "highmap/operator.hpp"
+#include "highmap/sdf.hpp"
 
 namespace hmap
 {
@@ -420,6 +421,9 @@ Array path_sdf_to_array(const Path  &path,
                         const Array *p_noise_x,
                         const Array *p_noise_y)
 {
+  if (!path.is_closed())
+    return sdf_2d_polyline(path, shape, bbox_array, p_noise_x, p_noise_y);
+
   if (!validate_shape(shape)) return Array();
   if (p_noise_x && !validate_same_shape(shape, *p_noise_x)) return Array();
   if (p_noise_y && !validate_same_shape(shape, *p_noise_y)) return Array();
@@ -457,9 +461,6 @@ Array path_sdf_to_array(const Path  &path,
         if ((c[0] && c[1] && c[2]) || (not(c[0]) && not(c[1]) && not(c[2])))
           s *= -1.f;
       }
-
-      // discard in/out info for an open path
-      if (!path.is_closed()) s = 1.f;
 
       array(i, j) = s * std::sqrt(d);
     }
